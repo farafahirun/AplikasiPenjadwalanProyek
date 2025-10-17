@@ -4,7 +4,7 @@ import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import matplotlib.patches as patches 
+import matplotlib.patches as patches
 from collections import deque, defaultdict
 import os
 import io
@@ -13,7 +13,7 @@ from ttkthemes import ThemedTk
 class ProjectSchedulerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Aplikasi Penjadwalan Proyek (CPM) v6.1 - Final")
+        self.root.title("Aplikasi Penjadwalan Proyek (CPM) v6.2 - Final")
         
         self.root.geometry("1366x768")
         self.root.minsize(1024, 640)
@@ -41,6 +41,7 @@ class ProjectSchedulerApp:
         self.style.configure("TButton", font=("Segoe UI", 10))
         self.style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
         self.style.configure("TLabelframe.Label", font=("Segoe UI", 11, "bold"))
+        self.style.configure("Bold.TLabel", font=("Segoe UI", 10, "bold"))
 
     def create_input_widgets(self):
         self.input_frame.columnconfigure(0, weight=1)
@@ -316,26 +317,55 @@ class ProjectSchedulerApp:
     def display_cpm_results(self):
         for widget in self.cpm_tab.winfo_children(): widget.destroy()
         if not hasattr(self, 'results_df'): return
-        frame = ttk.Frame(self.cpm_tab, padding=10)
-        frame.pack(fill=tk.BOTH, expand=True)
-        frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(0, weight=1)
+        
+        container = ttk.Frame(self.cpm_tab)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        table_frame = ttk.Frame(container, padding=10)
+        table_frame.pack(fill=tk.BOTH, expand=True)
+        table_frame.columnconfigure(0, weight=1)
+        table_frame.rowconfigure(0, weight=1)
+        
         cols = ['ID Kegiatan', 'Durasi', 'ES', 'EF', 'LS', 'LF', 'Slack']
         df_cols = ['Nama Kegiatan', 'Durasi', 'ES', 'EF', 'LS', 'LF', 'Slack']
-        tree = ttk.Treeview(frame, columns=cols, show='headings')
+        tree = ttk.Treeview(table_frame, columns=cols, show='headings')
+
         for col in cols:
             tree.heading(col, text=col)
             tree.column(col, width=100, anchor=tk.CENTER, stretch=True)
         tree.column('ID Kegiatan', width=150, anchor=tk.W, stretch=True)
+
+        tree.tag_configure('critical', background='#D83B01', foreground='white')
+        tree.tag_configure('non_critical', background='#E1F5FE', foreground='black')
+
         for _, row in self.results_df.iterrows():
             values = [int(row[c]) if c != 'Nama Kegiatan' else row[c] for c in df_cols]
-            tags = ('critical',) if row['Nama Kegiatan'] in self.critical_path_names else ()
-            tree.insert('', tk.END, values=values, tags=tags)
-        tree.tag_configure('critical', background='#D83B01', foreground='white')
+            tag = 'critical' if row['Nama Kegiatan'] in self.critical_path_names else 'non_critical'
+            tree.insert('', tk.END, values=values, tags=(tag,))
+        
         tree.grid(row=0, column=0, sticky="nsew")
-        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=scrollbar.set)
         scrollbar.grid(row=0, column=1, sticky="ns")
+
+        # --- FRAME KETERANGAN RUMUS ---
+        info_frame = ttk.LabelFrame(container, text="Keterangan & Rumus", padding=10)
+        info_frame.pack(fill=tk.X, padx=10, pady=(5,10))
+
+        rumus = {
+            "ES (Early Start)": "Waktu paling awal sebuah kegiatan dapat dimulai.",
+            "EF (Early Finish)": "Waktu paling awal sebuah kegiatan dapat selesai. Rumus: EF = ES + Durasi",
+            "LS (Late Start)": "Waktu paling lambat sebuah kegiatan dapat dimulai tanpa menunda proyek. Rumus: LS = LF - Durasi",
+            "LF (Late Finish)": "Waktu paling lambat sebuah kegiatan dapat selesai tanpa menunda proyek.",
+            "Slack": "Tenggang waktu (fleksibilitas) sebuah kegiatan. Rumus: Slack = LS - ES",
+            "Jalur Kritis": "Rangkaian kegiatan dengan Slack = 0. Keterlambatan pada jalur ini akan menunda keseluruhan proyek."
+        }
+        
+        for i, (istilah, keterangan) in enumerate(rumus.items()):
+            ttk.Label(info_frame, text=istilah, style="Bold.TLabel").grid(row=i, column=0, sticky="w", padx=5, pady=2)
+            ttk.Label(info_frame, text=":").grid(row=i, column=1, sticky="w", padx=5, pady=2)
+            ttk.Label(info_frame, text=keterangan, wraplength=700, justify=tk.LEFT).grid(row=i, column=2, sticky="w", padx=5, pady=2)
+
 
     def draw_diagram_on_canvas(self, fig, master_frame):
         for widget in master_frame.winfo_children():
@@ -350,7 +380,7 @@ class ProjectSchedulerApp:
         fig = plt.figure(figsize=(3.2, 1.2))
         ax = fig.add_subplot(111)
         label_text = (f"{'ES':^5}|{'Durasi':^6}|{'EF':^5}\n"
-                      f"{'Nama Kegiatan':^18}\n"
+                      f"{'ID Kegiatan':^18}\n"
                       f"{'LS':^5}|{'Slack':^6}|{'LF':^5}")
         ax.text(0.5, 0.5, label_text, ha='center', va='center', fontsize=10,
                 bbox=dict(boxstyle="round,pad=0.5", fc="#E1F5FE", ec="#01579B", lw=1.5),
@@ -400,10 +430,10 @@ class ProjectSchedulerApp:
             start_y = (total_in_layer - 1) / 2.0
             pos[node] = (layer, start_y - layer_y_offsets[layer])
             layer_y_offsets[layer] += 1
-
+        
         bbox_props_normal = dict(boxstyle="round,pad=0.7", fc="#E1F5FE", ec="#01579B", lw=1.5)
         bbox_props_critical = dict(boxstyle="round,pad=0.7", fc="#FFEBEE", ec="#B71C1C", lw=2.5)
-        
+
         for node, (x, y) in pos.items():
             row = self.results_df[self.results_df['Nama Kegiatan'] == node].iloc[0]
             label = (f"{int(row['ES']):^5}|{int(row['Durasi']):^6}|{int(row['EF']):^5}\n"
